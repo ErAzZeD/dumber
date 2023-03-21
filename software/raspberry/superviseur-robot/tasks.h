@@ -76,6 +76,8 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
+    RT_TASK th_battery;
+
     
     /**********************************************************************/
     /* Mutex                                                              */
@@ -149,6 +151,7 @@ private:
      */
     Message *ReadInQueue(RT_QUEUE *queue);
 
+    void Battery(void* arg);
 };
 
 #endif // __TASKS_H__ 
