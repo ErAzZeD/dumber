@@ -36,6 +36,12 @@
 
 using namespace std;
 
+struct DemandesMoniteur {
+    bool isCameraOpen = false;
+    bool arene = false;
+    bool positionRobot = false;
+};
+
 class Tasks {
 public:
     /**
@@ -66,7 +72,12 @@ private:
     ComRobot robot;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
+    bool isCameraOpen = false;
+    Camera* camera = NULL;
+    bool demandeArene = false;
+    struct DemandesMoniteur demandesMoniteur;
     
+        
     /**********************************************************************/
     /* Tasks                                                              */
     /**********************************************************************/
@@ -77,8 +88,8 @@ private:
     RT_TASK th_startRobot;
     RT_TASK th_move;
     RT_TASK th_battery;
+    RT_TASK th_periodicCamera;
 
-    
     /**********************************************************************/
     /* Mutex                                                              */
     /**********************************************************************/
@@ -86,6 +97,8 @@ private:
     RT_MUTEX mutex_robot;
     RT_MUTEX mutex_robotStarted;
     RT_MUTEX mutex_move;
+    RT_MUTEX mutex_camera;
+    RT_MUTEX mutex_demandesMoniteur;
 
     /**********************************************************************/
     /* Semaphores                                                         */
@@ -152,6 +165,10 @@ private:
     Message *ReadInQueue(RT_QUEUE *queue);
 
     void Battery(void* arg);
+    
+    void ToggleCamera(void* arg);
+    
+    void PeriodicCamera(void* arg);
 };
 
 #endif // __TASKS_H__ 
