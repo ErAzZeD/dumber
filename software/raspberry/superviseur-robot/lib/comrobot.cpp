@@ -130,10 +130,9 @@ Message *ComRobot::Write(Message* msg) {
                 if (VerifyChecksum(s)) {
                     msgAnswer = StringToMessage(s);
                 } else msgAnswer = new Message(MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND);
-
+                counter = 0;
             } catch (std::runtime_error &e) {
                 s = string(e.what());
-
                 if (s.find("imeout")) { // timeout detecté
                     msgAnswer = new Message(MESSAGE_ANSWER_ROBOT_TIMEOUT);
                 } else {

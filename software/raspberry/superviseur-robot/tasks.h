@@ -64,6 +64,10 @@ public:
      */
     void Join();
     
+    
+    Message* write2(Message* m);
+    
+    
 private:
     /**********************************************************************/
     /* Shared data                                                        */
@@ -71,9 +75,12 @@ private:
     ComMonitor monitor;
     ComRobot robot;
     int robotStarted = 0;
+    Arena* arena;
+
     int move = MESSAGE_ROBOT_STOP;
     bool isCameraOpen = false;
     Camera* camera = NULL;
+    Img* img;
     bool demandeArene = false;
     struct DemandesMoniteur demandesMoniteur;
     
@@ -99,6 +106,8 @@ private:
     RT_MUTEX mutex_move;
     RT_MUTEX mutex_camera;
     RT_MUTEX mutex_demandesMoniteur;
+    RT_MUTEX mutex_getArena;
+    RT_MUTEX mutex_getImage;
 
     /**********************************************************************/
     /* Semaphores                                                         */

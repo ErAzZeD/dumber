@@ -157,6 +157,7 @@ protected:
      * Serial link file descriptor
      */
     int fd;
+    unsigned char counter;
 
     /**
      * Get an answer from robot
