@@ -76,8 +76,8 @@ private:
     Camera* camera = NULL;
     bool demandeArene = false;
     struct DemandesMoniteur demandesMoniteur;
-    
-        
+    Arena* arena;
+    Img* img;
     /**********************************************************************/
     /* Tasks                                                              */
     /**********************************************************************/
@@ -89,6 +89,8 @@ private:
     RT_TASK th_move;
     RT_TASK th_battery;
     RT_TASK th_periodicCamera;
+    RT_MUTEX mutex_getArena;
+    RT_MUTEX mutex_getImage;
 
     /**********************************************************************/
     /* Mutex                                                              */

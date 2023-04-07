@@ -269,6 +269,9 @@ string ComMonitor::MessageToString(Message *msg) {
         case MESSAGE_EMPTY:
             str.append(""); //empty string
             break;
+        case MESSAGE_ROBOT_COM_CLOSE:
+            str.append("MESSAGE_ROBOT_COM_CLOSE");
+            break;
         default:
             cerr<<"["<<__PRETTY_FUNCTION__<<"] (from ComMonitor::Write): Invalid message to send ("<<msg->ToString()<<")"<<endl<<flush;
             throw std::runtime_error {"Invalid message to send"};

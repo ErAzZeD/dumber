@@ -84,6 +84,14 @@ void Tasks::Init() {
         cerr << "Error mutex create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_mutex_create(&mutex_getArena, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_mutex_create(&mutex_getImage, NULL)) {
+        cerr << "Error mutex create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Mutexes created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -153,6 +161,11 @@ void Tasks::Init() {
         exit(EXIT_FAILURE);
     }
     cout << "Queues created successfully" << endl << flush;
+    
+    
+    rt_mutex_acquire(&mutex_getArena, TM_INFINITE);
+        arena = new Arena();
+    rt_mutex_release(&mutex_getArena);
 }
 
 /**
@@ -311,11 +324,35 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             if (!demandesMoniteur.isCameraOpen) {
                 demandesMoniteur.isCameraOpen = camera->Open();
             } else {
+
+            }
+            rt_mutex_release(&mutex_demandesMoniteur);
+            rt_mutex_release(&mutex_camera);
+        } else if (msgRcv->CompareID(MESSAGE_CAM_CLOSE)) {
+            rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            if (camera != NULL && demandesMoniteur.isCameraOpen) {
                 camera->Close();
                 demandesMoniteur.isCameraOpen = false;
             }
             rt_mutex_release(&mutex_demandesMoniteur);
             rt_mutex_release(&mutex_camera);
+        } else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)) {
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);      
+            demandesMoniteur.arene = true;
+            rt_mutex_release(&mutex_demandesMoniteur);
+        } else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)) {
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            demandesMoniteur.arene = false;
+            rt_mutex_release(&mutex_demandesMoniteur);
+        } else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)) {
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            demandesMoniteur.arene = true;
+            rt_mutex_release(&mutex_demandesMoniteur);
+
+            rt_mutex_acquire(&mutex_getArena, TM_INFINITE);
+            arena = new Arena();
+            rt_mutex_release(&mutex_getArena);
         } else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_START)) {
             rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
             demandesMoniteur.positionRobot = true;
@@ -374,7 +411,6 @@ void Tasks::StartRobotTask(void *arg) {
     /* The task startRobot starts here                                                    */
     /**************************************************************************************/
     while (1) {
-
         Message * msgSend;
         rt_sem_p(&sem_startRobot, TM_INFINITE);
         cout << "Start robot without watchdog (";
@@ -496,8 +532,6 @@ void Tasks::Battery(void *arg) {
 
 
 void Tasks::PeriodicCamera(void *arg) {
-    Arena arena = Arena();
-
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
     rt_sem_p(&sem_barrier, TM_INFINITE);
@@ -510,26 +544,33 @@ void Tasks::PeriodicCamera(void *arg) {
     while (1) {
         rt_task_wait_period(NULL);
         cout << "Periodic battery update" << endl << flush;
-        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        if (robotStarted == 1) {
-            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
-            if (demandesMoniteur.isCameraOpen) {
-                Img* img = new Img(camera->Grab()); // TODO creer destructeur Img
-                WriteInQueue(&q_messageToMon, 
-                        new MessageImg(MESSAGE_CAM_IMAGE, img)
-                    );
-                if (demandesMoniteur.arene) {
-                    if (arena.IsEmpty()) {
-                        arena = img->SearchArena();
-                    }
-                    img->DrawArena(arena);
-                }
-                if(demandesMoniteur.positionRobot) {
-                    
-                }
+                rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+        if (demandesMoniteur.isCameraOpen) {
+            rt_mutex_acquire(&mutex_camera, TM_INFINITE);
+            img = new Img(camera->Grab()); // TODO creer destructeur Img
+            rt_mutex_release(&mutex_camera);
+
+            cout << "arena" << endl << flush;
+
+            rt_mutex_acquire(&mutex_getArena, TM_INFINITE);
+            if (demandesMoniteur.arene && arena->IsEmpty()) {
+                arena = new Arena(img->SearchArena());
             }
-            rt_mutex_release(&mutex_demandesMoniteur);
+            if (!arena->IsEmpty()) {
+                img->DrawArena(*arena);
+            }
+            if (demandesMoniteur.positionRobot) {
+                img->DrawAllRobots(img->SearchRobot(*arena));
+            }
+
+            rt_mutex_release(&mutex_getArena);
+
+            cout << "endif arena" << endl << flush;
+
+            WriteInQueue(&q_messageToMon,                 //if (demandesMoniteur.arene) {
+                    new MessageImg(MESSAGE_CAM_IMAGE, img)
+                );
         }
-        rt_mutex_release(&mutex_robotStarted);
+        rt_mutex_release(&mutex_demandesMoniteur);
     }
 }
