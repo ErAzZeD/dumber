@@ -40,6 +40,7 @@ struct DemandesMoniteur {
     bool isCameraOpen = false;
     bool arene = false;
     bool positionRobot = false;
+    bool watchdog = false;
 };
 
 class Tasks {

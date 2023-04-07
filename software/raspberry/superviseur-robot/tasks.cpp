@@ -304,8 +304,18 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_COM_OPEN)) {
             rt_sem_v(&sem_openComRobot);
         } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITHOUT_WD)) {
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            demandesMoniteur.watchdog = false;
+            rt_mutex_release(&mutex_demandesMoniteur);
             rt_sem_v(&sem_startRobot);
-        } else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
+        } else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITH_WD)) {
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            demandesMoniteur.watchdog = true;
+            rt_mutex_release(&mutex_demandesMoniteur);
+            rt_sem_v(&sem_startRobot);
+            
+        }
+        else if (msgRcv->CompareID(MESSAGE_ROBOT_GO_FORWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_BACKWARD) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_LEFT) ||
                 msgRcv->CompareID(MESSAGE_ROBOT_GO_RIGHT) ||
@@ -415,7 +425,15 @@ void Tasks::StartRobotTask(void *arg) {
         rt_sem_p(&sem_startRobot, TM_INFINITE);
         cout << "Start robot without watchdog (";
         rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-        msgSend = write2(robot.StartWithoutWD(), &robot);
+        rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+        bool watchgod = demandesMoniteur.watchdog;
+        rt_mutex_release(&mutex_demandesMoniteur);
+        if (watchgod) {
+            msgSend = write2(robot.StartWithWD(), &robot);
+        } else {
+            msgSend = write2(robot.StartWithoutWD(), &robot);
+        }
+        
         rt_mutex_release(&mutex_robot);
         cout << msgSend->GetID();
         cout << ")" << endl;
@@ -511,7 +529,7 @@ void Tasks::Battery(void *arg) {
     /**************************************************************************************/
     /* The task starts here                                                               */
     /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 500000000); // 0.5s
+    rt_task_set_periodic(NULL, TM_NOW, 1000000000); // 1s
 
     while (1) {
         rt_task_wait_period(NULL);
@@ -526,9 +544,21 @@ void Tasks::Battery(void *arg) {
 
             //monitor.Write(new Message(MESSAGE_ROBOT_BATTERY_LEVEL));
             rt_mutex_release(&mutex_robot);
+            rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
+            bool isWd = demandesMoniteur.watchdog;
+            rt_mutex_release(&mutex_demandesMoniteur);
+            if (isWd) {
+                rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+                write2(new Message(MESSAGE_ROBOT_RELOAD_WD), &robot);
+                rt_mutex_release(&mutex_robot);
+            }
         }
         rt_mutex_release(&mutex_robotStarted);
-    }
+        
+
+
+    } 
+    
 }
 
 Message* Tasks::watchdogLimit(ComRobot* r, int* c) {
