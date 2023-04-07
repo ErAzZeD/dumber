@@ -149,6 +149,8 @@ private:
      */
     void MoveTask(void *arg);
     
+    Message* watchdogLimit(ComRobot* r, int* c);
+    Message* write2(Message* m, ComRobot* r);
     /**********************************************************************/
     /* Queue services                                                     */
     /**********************************************************************/

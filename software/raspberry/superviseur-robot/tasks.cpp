@@ -415,7 +415,7 @@ void Tasks::StartRobotTask(void *arg) {
         rt_sem_p(&sem_startRobot, TM_INFINITE);
         cout << "Start robot without watchdog (";
         rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-        msgSend = robot.Write(robot.StartWithoutWD());
+        msgSend = write2(robot.StartWithoutWD(), &robot);
         rt_mutex_release(&mutex_robot);
         cout << msgSend->GetID();
         cout << ")" << endl;
@@ -461,7 +461,7 @@ void Tasks::MoveTask(void *arg) {
             cout << " move: " << cpMove << endl << flush;;
             
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            robot.Write(new Message((MessageID)cpMove));
+            write2(new Message((MessageID)cpMove), &robot);
             rt_mutex_release(&mutex_robot);
         }
         cout << endl << flush;
@@ -477,7 +477,7 @@ void Tasks::WriteInQueue(RT_QUEUE *queue, Message *msg) {
     int err;
     if ((err = rt_queue_write(queue, (const void *) &msg, sizeof ((const void *) &msg), Q_NORMAL)) < 0) {
         cerr << "Write in queue failed: " << strerror(-err) << endl << flush;
-        throw std::runtime_error{"Error in write in queue"};
+        //throw std::runtime_error{"Error in write in queue"};
     }
 }
 
@@ -515,12 +515,13 @@ void Tasks::Battery(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        cout << "Periodic battery update" << endl << flush;
+        
         rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        if (robotStarted == 1) {                     
+        if (robotStarted == 1) {
+            cout << "Periodic battery update" << endl << flush;
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             WriteInQueue(&q_messageToMon, 
-                    robot.Write(new Message(MESSAGE_ROBOT_BATTERY_GET))
+                    write2(new Message(MESSAGE_ROBOT_BATTERY_GET), &robot)
                     );
 
             //monitor.Write(new Message(MESSAGE_ROBOT_BATTERY_LEVEL));
@@ -530,6 +531,39 @@ void Tasks::Battery(void *arg) {
     }
 }
 
+Message* Tasks::watchdogLimit(ComRobot* r, int* c) {
+    cout << "ERROR COM" << endl << flush;
+    rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+    robotStarted = 0;
+    rt_mutex_release(&mutex_robotStarted);
+    r->Close();
+    *c=0;
+    return new Message(MESSAGE_ANSWER_COM_ERROR);
+}
+
+Message* Tasks::write2(Message* m, ComRobot* r) {
+    static int c = 0;
+    cout << "Write2" << "[" << c << "]: " << m->ToString() << endl << flush;
+    try {
+        Message *mess = robot.Write(m);
+        if (mess->CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT) || 
+            mess->CompareID(MESSAGE_ANSWER_COM_ERROR) || 
+            mess->CompareID(MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND)) {
+            c++;
+            if(c>=3) {
+                return watchdogLimit(r,&c);
+            }
+        }
+        return mess;
+    } catch (std::runtime_error &e) {
+        c++;
+        if (c>=3) {
+            return watchdogLimit(r,&c);
+        } 
+        return new Message(MESSAGE_ANSWER_COM_ERROR);    
+    }
+    return new Message(MESSAGE_ANSWER_COM_ERROR);    
+}
 
 void Tasks::PeriodicCamera(void *arg) {
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
