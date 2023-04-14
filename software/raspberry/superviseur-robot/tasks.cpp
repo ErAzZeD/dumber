@@ -142,7 +142,7 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_create(&th_battery, "th_battery", 0, PRIORITY_TMOVE, 0)) {
+    if (err = rt_task_create(&th_periodic_second, "th_periodic_second", 0, PRIORITY_TMOVE, 0)) {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE); 
     }
@@ -156,12 +156,11 @@ void Tasks::Init() {
     /**************************************************************************************/
     /* Message queues creation                                                            */
     /**************************************************************************************/
-    if ((err = rt_queue_create(&q_messageToMon, "q_messageToMon", sizeof (Message*)*50, Q_UNLIMITED, Q_FIFO)) < 0) {
+    if ((err = rt_queue_create(&q_messageToMon, "q_messageToMon", sizeof (Message*)*100, Q_UNLIMITED, Q_FIFO)) < 0) {
         cerr << "Error msg queue create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
     cout << "Queues created successfully" << endl << flush;
-    
     
     rt_mutex_acquire(&mutex_getArena, TM_INFINITE);
         arena = new Arena();
@@ -199,7 +198,7 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
-    if (err = rt_task_start(&th_battery, (void(*)(void*)) & Tasks::Battery, this)) {
+    if (err = rt_task_start(&th_periodic_second, (void(*)(void*)) & Tasks::PeriodicTaskSecond, this)) {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -329,7 +328,7 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_acquire(&mutex_camera, TM_INFINITE);
             rt_mutex_acquire(&mutex_demandesMoniteur, TM_INFINITE);
             if (camera == NULL) {
-                camera = new Camera();
+                camera = new Camera(sm, 5);
             }
             if (!demandesMoniteur.isCameraOpen) {
                 demandesMoniteur.isCameraOpen = camera->Open();
@@ -518,9 +517,14 @@ Message *Tasks::ReadInQueue(RT_QUEUE *queue) {
     return msg;
 }
 
+/**
+ * Fonction permettant d'exécuter des tâches avec une période de 1 seconde
+ * Dans ce code sont concernés : 
+ *  - Le calcul du niveau de la batterie
+ *  - L'envoi d'un message au watchdog pour redémarrer son compteur
+ */
 
-
-void Tasks::Battery(void *arg) {
+void Tasks::PeriodicTaskSecond(void *arg) {
 
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -561,7 +565,8 @@ void Tasks::Battery(void *arg) {
     
 }
 
-Message* Tasks::watchdogLimit(ComRobot* r, int* c) {
+// Fonction exécutée en cas de dépassement de compteur, pour arrêter la communication superviseur/robot
+Message* Tasks::counterLimit(ComRobot* r, int* c) {
     cout << "ERROR COM" << endl << flush;
     rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
     robotStarted = 0;
@@ -571,30 +576,40 @@ Message* Tasks::watchdogLimit(ComRobot* r, int* c) {
     return new Message(MESSAGE_ANSWER_COM_ERROR);
 }
 
+// Function qui permet d'encapsuler write pour permettre d'envoyer des messages seulement si le robot est détecté (fonctionne de pair avec PeriodicCamera)
 Message* Tasks::write2(Message* m, ComRobot* r) {
     static int c = 0;
     cout << "Write2" << "[" << c << "]: " << m->ToString() << endl << flush;
     try {
         Message *mess = robot.Write(m);
+        // Si le message reçu est un message d'erreur, on incrémente le compteur de déconnexion
         if (mess->CompareID(MESSAGE_ANSWER_ROBOT_TIMEOUT) || 
             mess->CompareID(MESSAGE_ANSWER_COM_ERROR) || 
             mess->CompareID(MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND)) {
             c++;
+            // Si le compteur atteint 3, on ferme la connexion 
             if(c>=3) {
-                return watchdogLimit(r,&c);
+                return counterLimit(r,&c);
             }
         }
         return mess;
+        // Si on ne reçoit pas de message, on considére ça comme une erreur et on incrémente le compteur d'erreur
     } catch (std::runtime_error &e) {
         c++;
         if (c>=3) {
-            return watchdogLimit(r,&c);
+            return counterLimit(r,&c);
         } 
         return new Message(MESSAGE_ANSWER_COM_ERROR);    
     }
     return new Message(MESSAGE_ANSWER_COM_ERROR);    
 }
 
+
+/**
+ * Fonction permettant d'acquérir des images pour les afficher sur le moniteur. Cette fonction envoie avec une période de 200ms (5 FPS) 
+ * des images au superviseur et gère l'affichage de la détection de l'arène et de la position du robot 
+ * 
+ */
 void Tasks::PeriodicCamera(void *arg) {
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -603,7 +618,7 @@ void Tasks::PeriodicCamera(void *arg) {
     /**************************************************************************************/
     /* The task starts here                                                               */
     /**************************************************************************************/
-    rt_task_set_periodic(NULL, TM_NOW, 100000000); // 0.1s
+    rt_task_set_periodic(NULL, TM_NOW, 200000000); // 0.2s
 
     while (1) {
         rt_task_wait_period(NULL);
@@ -624,7 +639,14 @@ void Tasks::PeriodicCamera(void *arg) {
                 img->DrawArena(*arena);
             }
             if (demandesMoniteur.positionRobot) {
-                img->DrawAllRobots(img->SearchRobot(*arena));
+                std::list<Position> pos = img->SearchRobot(*arena);
+                // Itérateur permettant de récupérer la position du robot dans une liste et les affiche au superviseur
+                img->DrawAllRobots(pos);
+                for( auto p : pos ) {
+                    WriteInQueue(&q_messageToMon,
+                        new MessagePosition(MESSAGE_CAM_POSITION, p)
+                    );
+                }
             }
 
             rt_mutex_release(&mutex_getArena);

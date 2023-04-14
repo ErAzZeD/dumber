@@ -36,6 +36,9 @@
 
 using namespace std;
 
+/* Struct aui contient tous les parametres de donnees demandes par le moniteur, 
+ protege par le mutex mutex_demandesMoniteur
+*/
 struct DemandesMoniteur {
     bool isCameraOpen = false;
     bool arene = false;
@@ -88,7 +91,7 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
-    RT_TASK th_battery;
+    RT_TASK th_periodic_second;
     RT_TASK th_periodicCamera;
     RT_MUTEX mutex_getArena;
     RT_MUTEX mutex_getImage;
@@ -150,7 +153,10 @@ private:
      */
     void MoveTask(void *arg);
     
-    Message* watchdogLimit(ComRobot* r, int* c);
+    // Fonction exécutée en cas de dépassement de compteur, pour arrêter la communication superviseur/robot
+    Message* counterLimit(ComRobot* r, int* c);
+    
+    // Function qui permet d'encapsuler write pour permettre d'envoyer des messages seulement si le robot est détecté (fonctionne de pair avec PeriodicCamera)
     Message* write2(Message* m, ComRobot* r);
     /**********************************************************************/
     /* Queue services                                                     */
@@ -168,11 +174,21 @@ private:
      * @return Message read
      */
     Message *ReadInQueue(RT_QUEUE *queue);
-
-    void Battery(void* arg);
     
-    void ToggleCamera(void* arg);
     
+/**
+ * Fonction permettant d'exécuter des tâches avec une période de 1 seconde
+ * Dans ce code sont concernés : 
+ *  - Le calcul du niveau de la batterie
+ *  - L'envoi d'un message au watchdog pour redémarrer son compteur
+ */
+    void PeriodicTaskSecond(void* arg);
+    
+    /**
+     * Fonction permettant d'acquérir des images pour les afficher sur le moniteur. Cette fonction envoie avec une période de 200ms (5 FPS) 
+     * des images au superviseur et gère l'affichage de la détection de l'arène et de la position du robot 
+     * 
+     */    
     void PeriodicCamera(void* arg);
 };
 
